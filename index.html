@@ -470,22 +470,37 @@ async function updateMap() {
 
 // ─── 住所検索（国土地理院API → Nominatim フォールバック）──────
 async function geocode(address) {
-  // 1st: 国土地理院（日本住所専用・高精度）
+  const q = encodeURIComponent(address);
+
+  // 1st: 国土地理院（日本住所専用・高精度）CORSプロキシ経由
+  const gsiEndpoints = [
+    `https://corsproxy.io/?${encodeURIComponent('https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + q)}`,
+    `https://api.allorigins.win/get?url=${encodeURIComponent('https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + q)}`
+  ];
+  for (const url of gsiEndpoints) {
+    try {
+      const res  = await fetch(url);
+      const raw  = await res.json();
+      // allorigins は { contents: "..." } で返す
+      const data = raw.contents ? JSON.parse(raw.contents) : raw;
+      if (Array.isArray(data) && data.length) {
+        const [lon, lat] = data[0].geometry.coordinates;
+        return [lat, lon];
+      }
+    } catch (_) {}
+  }
+
+  // 2nd: Nominatim（複数取得→最も詳細な結果を選択）
   try {
-    const url = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(address)}`;
-    const res  = await fetch(url);
+    const url  = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=5&addressdetails=1&countrycodes=jp`;
+    const res  = await fetch(url, { headers: { 'Accept-Language': 'ja' } });
     const data = await res.json();
     if (data.length) {
-      const [lon, lat] = data[0].geometry.coordinates; // GeoJSON は [lon, lat]
-      return [lat, lon];
+      // place_rank が高いほど詳細（30=番地, 18=町丁目, 12=区）
+      data.sort((a, b) => b.place_rank - a.place_rank);
+      return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
     }
   } catch (_) {}
-
-  // 2nd: Nominatim フォールバック
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=jp`;
-  const res  = await fetch(url, { headers: { 'Accept-Language': 'ja' } });
-  const data = await res.json();
-  if (data.length) return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
 
   return null;
 }
