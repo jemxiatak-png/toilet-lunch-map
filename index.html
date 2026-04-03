@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>トイレ・ランチ地図</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif; background: #f5f5f5; }
+
+    #app { display: flex; flex-direction: column; height: 100dvh; }
+
+    #controls {
+      background: #fff;
+      padding: 10px 12px 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+      z-index: 1000;
+      flex-shrink: 0;
+    }
+
+    #map { flex: 1; min-height: 0; }
+
+    .row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+
+    input[type="text"] {
+      flex: 1;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus { border-color: #2196F3; }
+
+    input[type="number"] {
+      width: 72px;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      padding: 9px 10px;
+      font-size: 14px;
+      outline: none;
+      text-align: center;
+    }
+
+    .btn {
+      border: none;
+      border-radius: 8px;
+      padding: 9px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: opacity 0.15s;
+    }
+    .btn:active { opacity: 0.75; }
+    .btn-primary { background: #2196F3; color: #fff; }
+    .btn-green  { background: #43A047; color: #fff; }
+
+    .filters { display: flex; gap: 8px; }
+    .filter-btn {
+      flex: 1;
+      border: none;
+      border-radius: 20px;
+      padding: 7px 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, background 0.2s;
+    }
+    .filter-btn.off { opacity: 0.45; }
+    #btn-toilet     { background: #E8F5E9; color: #2E7D32; }
+    #btn-restaurant { background: #FFF3E0; color: #BF360C; }
+    #btn-convenience{ background: #E3F2FD; color: #1565C0; }
+
+    #status {
+      text-align: center;
+      font-size: 12px;
+      color: #888;
+      margin-top: 5px;
+      min-height: 16px;
+    }
+
+    #error-banner {
+      display: none;
+      background: #FFEBEE;
+      color: #B71C1C;
+      font-size: 13px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+
+    /* Popup */
+    .popup-wrap { min-width: 200px; max-width: 270px; font-family: -apple-system, sans-serif; }
+    .popup-wrap h3 { font-size: 15px; margin-bottom: 5px; line-height: 1.3; }
+    .badge {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-bottom: 7px;
+    }
+    .badge-toilet      { background: #E8F5E9; color: #2E7D32; }
+    .badge-restaurant  { background: #FFF3E0; color: #BF360C; }
+    .badge-cafe        { background: #F3E5F5; color: #6A1B9A; }
+    .badge-fastfood    { background: #FFF9C4; color: #F57F17; }
+    .badge-convenience { background: #E3F2FD; color: #1565C0; }
+    .popup-info { font-size: 13px; line-height: 1.8; color: #333; }
+    .popup-info a { color: #2196F3; text-decoration: none; }
+    .ext-link {
+      display: block;
+      margin-top: 8px;
+      padding: 6px 10px;
+      background: #f5f5f5;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #555;
+      text-decoration: none;
+      text-align: center;
+    }
+
+    /* Loading */
+    #loading {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255,255,255,0.95);
+      padding: 18px 28px;
+      border-radius: 12px;
+      z-index: 3000;
+      text-align: center;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      font-size: 14px;
+      color: #555;
+    }
+    .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid #e0e0e0;
+      border-top-color: #2196F3;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin: 0 auto 10px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Radius label */
+    .unit { font-size: 13px; color: #666; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="controls">
+
+    <!-- 住所入力 -->
+    <div class="row">
+      <input type="text" id="address" placeholder="住所・地名を入力" value="横浜市中区池袋34"/>
+      <button class="btn btn-primary" onclick="search()">検索</button>
+      <button class="btn btn-green"  onclick="locate()">現在地</button>
+    </div>
+
+    <!-- 半径 -->
+    <div class="row">
+      <span class="unit">半径</span>
+      <input type="number" id="radius" value="500" min="100" max="3000" step="100"/>
+      <span class="unit">m</span>
+      <button class="btn btn-primary" onclick="updateMap()" style="padding:9px 12px">再取得</button>
+    </div>
+
+    <!-- フィルター -->
+    <div class="filters">
+      <button class="filter-btn" id="btn-toilet"      onclick="toggleFilter('toilet')">🚻 トイレ</button>
+      <button class="filter-btn" id="btn-restaurant"  onclick="toggleFilter('restaurant')">🍽️ ランチ</button>
+      <button class="filter-btn" id="btn-convenience" onclick="toggleFilter('convenience')">🏪 コンビニ</button>
+    </div>
+
+    <div id="status"></div>
+    <div id="error-banner"></div>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<div id="loading"><div class="spinner"></div>読み込み中...</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ─── 初期化 ───────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true }).setView([35.4437, 139.6381], 15);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  maxZoom: 19
+}).addTo(map);
+
+// ─── 状態 ───────────────────────────────────────────────
+let center = [35.4437, 139.6381];
+let radiusCircle = null;
+let centerMarker = null;
+let markers = { toilet: [], restaurant: [], convenience: [] };
+let showToilet = true;
+let showRestaurant = true;
+let showConvenience = true;
+
+// ─── アイコン ───────────────────────────────────────────
+function makeIcon(emoji, bg) {
+  return L.divIcon({
+    html: `<div style="background:${bg};width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 2px 6px rgba(0,0,0,0.25);border:2px solid #fff">${emoji}</div>`,
+    iconSize: [34, 34], iconAnchor: [17, 17], className: ''
+  });
+}
+const icons = {
+  toilet:            makeIcon('🚻', '#43A047'),
+  restaurant:        makeIcon('🍽️', '#FB8C00'),
+  cafe:              makeIcon('☕', '#8E24AA'),
+  fast_food:         makeIcon('🍔', '#FDD835'),
+  convenience_store: makeIcon('🏪', '#1E88E5')
+};
+const centerIcon = L.divIcon({
+  html: `<div style="background:#2196F3;width:16px;height:16px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35)"></div>`,
+  iconSize: [16, 16], iconAnchor: [8, 8], className: ''
+});
+
+// ─── UI helpers ──────────────────────────────────────────
+function setStatus(msg) { document.getElementById('status').textContent = msg; }
+function showLoading(v) { document.getElementById('loading').style.display = v ? 'block' : 'none'; }
+function showError(msg) {
+  const el = document.getElementById('error-banner');
+  if (msg) { el.innerHTML = msg; el.style.display = 'block'; }
+  else      { el.style.display = 'none'; }
+}
+
+function clearMarkers(type) {
+  markers[type].forEach(m => map.removeLayer(m));
+  markers[type] = [];
+}
+
+function toggleFilter(type) {
+  if (type === 'toilet') {
+    showToilet = !showToilet;
+    document.getElementById('btn-toilet').classList.toggle('off', !showToilet);
+    markers.toilet.forEach(m => showToilet ? map.addLayer(m) : map.removeLayer(m));
+  } else if (type === 'restaurant') {
+    showRestaurant = !showRestaurant;
+    document.getElementById('btn-restaurant').classList.toggle('off', !showRestaurant);
+    markers.restaurant.forEach(m => showRestaurant ? map.addLayer(m) : map.removeLayer(m));
+  } else {
+    showConvenience = !showConvenience;
+    document.getElementById('btn-convenience').classList.toggle('off', !showConvenience);
+    markers.convenience.forEach(m => showConvenience ? map.addLayer(m) : map.removeLayer(m));
+  }
+}
+
+// ─── 価格帯 ──────────────────────────────────────────────
+function priceLabel(tags) {
+  if (tags['price_range'])    return tags['price_range'];
+  if (tags['charge'])         return tags['charge'];
+  const t = tags['amenity'];
+  if (t === 'fast_food') return '¥ (〜1,000円程度)';
+  if (t === 'cafe')      return '¥ (〜800円程度)';
+  return '—';
+}
+
+// ─── ポップアップ ────────────────────────────────────────
+function toiletPopup(tags, lat, lon) {
+  const name   = tags['name'] || '公衆トイレ';
+  const fee    = tags['fee'] === 'yes' ? '💴 有料' : tags['fee'] === 'no' ? '💴 無料' : '';
+  const wc     = tags['wheelchair'] === 'yes' ? '♿ 車椅子対応' : '';
+  const hours  = tags['opening_hours'] ? `🕐 ${tags['opening_hours']}` : '';
+  const gmUrl  = `https://www.google.com/maps?q=${lat},${lon}`;
+
+  const rows = [fee, wc, hours].filter(Boolean).map(r => `<div>${r}</div>`).join('');
+  return `<div class="popup-wrap">
+    <h3>🚻 ${name}</h3>
+    <span class="badge badge-toilet">トイレ</span>
+    <div class="popup-info">${rows || '<div>詳細情報なし</div>'}</div>
+    <a class="ext-link" href="${gmUrl}" target="_blank">📍 Googleマップで開く</a>
+  </div>`;
+}
+
+function restaurantPopup(tags, lat, lon) {
+  const name    = tags['name'] || '飲食店';
+  const amenity = tags['amenity'];
+  const label   = amenity === 'fast_food' ? 'ファストフード' : amenity === 'cafe' ? 'カフェ' : 'レストラン';
+  const badgeCls= amenity === 'cafe' ? 'badge-cafe' : amenity === 'fast_food' ? 'badge-fastfood' : 'badge-restaurant';
+  const cuisine = tags['cuisine'] ? `🍜 ${tags['cuisine'].replace(/;/g, '・')}` : '';
+  const price   = `💴 価格帯: ${priceLabel(tags)}`;
+  const hours   = tags['opening_hours'] ? `🕐 ${tags['opening_hours']}` : '';
+  const phone   = tags['phone'] || tags['contact:phone'] || '';
+  const site    = tags['website'] || tags['contact:website'] || '';
+  const gmUrl   = `https://www.google.com/maps/search/${encodeURIComponent(name)}/@${lat},${lon},17z`;
+
+  const rows = [cuisine, price, hours,
+    phone ? `📞 <a href="tel:${phone}">${phone}</a>` : '',
+    site  ? `🌐 <a href="${site}" target="_blank">公式サイト</a>` : ''
+  ].filter(Boolean).map(r => `<div>${r}</div>`).join('');
+
+  return `<div class="popup-wrap">
+    <h3>🍽️ ${name}</h3>
+    <span class="badge ${badgeCls}">${label}</span>
+    <div class="popup-info">${rows}</div>
+    <a class="ext-link" href="${gmUrl}" target="_blank">⭐ Googleマップで口コミを見る</a>
+  </div>`;
+}
+
+function conveniencePopup(tags, lat, lon) {
+  const name   = tags['name'] || 'コンビニ';
+  const brand  = tags['brand'] || '';
+  const hours  = tags['opening_hours'] ? `🕐 ${tags['opening_hours']}` : '';
+  const atm    = tags['atm'] === 'yes' ? '🏧 ATMあり' : '';
+  const toilet = tags['toilets'] === 'yes' ? '🚻 トイレあり' : '';
+  const phone  = tags['phone'] || tags['contact:phone'] || '';
+  const gmUrl  = `https://www.google.com/maps/search/${encodeURIComponent(name)}/@${lat},${lon},17z`;
+
+  const rows = [
+    brand  ? `🏷️ ${brand}` : '',
+    hours, atm, toilet,
+    phone ? `📞 <a href="tel:${phone}">${phone}</a>` : ''
+  ].filter(Boolean).map(r => `<div>${r}</div>`).join('');
+
+  return `<div class="popup-wrap">
+    <h3>🏪 ${name}</h3>
+    <span class="badge badge-convenience">コンビニ</span>
+    <div class="popup-info">${rows || '<div>詳細情報なし</div>'}</div>
+    <a class="ext-link" href="${gmUrl}" target="_blank">📍 Googleマップで開く</a>
+  </div>`;
+}
+
+// ─── Overpass API ────────────────────────────────────────
+async function fetchOverpass(lat, lon, r) {
+  const q = `[out:json][timeout:30];
+(
+  node["amenity"="toilets"](around:${r},${lat},${lon});
+  way["amenity"="toilets"](around:${r},${lat},${lon});
+  node["amenity"="restaurant"](around:${r},${lat},${lon});
+  node["amenity"="cafe"](around:${r},${lat},${lon});
+  node["amenity"="fast_food"](around:${r},${lat},${lon});
+  way["amenity"="restaurant"](around:${r},${lat},${lon});
+  way["amenity"="cafe"](around:${r},${lat},${lon});
+  way["amenity"="fast_food"](around:${r},${lat},${lon});
+  node["shop"="convenience"](around:${r},${lat},${lon});
+  way["shop"="convenience"](around:${r},${lat},${lon});
+);
+out center;`;
+
+  // 複数のエンドポイントを順に試みる
+  const endpoints = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter'
+  ];
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        body: 'data=' + encodeURIComponent(q)
+      });
+      if (res.ok) return await res.json();
+    } catch (_) {}
+  }
+  throw new Error('Overpass API に接続できませんでした');
+}
+
+// ─── 地図更新 ────────────────────────────────────────────
+async function updateMap() {
+  const radius = Math.max(100, Math.min(3000, parseInt(document.getElementById('radius').value) || 500));
+  document.getElementById('radius').value = radius;
+
+  clearMarkers('toilet');
+  clearMarkers('restaurant');
+  clearMarkers('convenience');
+  if (radiusCircle)  map.removeLayer(radiusCircle);
+  if (centerMarker)  map.removeLayer(centerMarker);
+
+  radiusCircle = L.circle(center, {
+    radius, color: '#2196F3', weight: 2,
+    fillColor: '#2196F3', fillOpacity: 0.04
+  }).addTo(map);
+  centerMarker = L.marker(center, { icon: centerIcon }).addTo(map);
+
+  const zoom = radius > 1500 ? 13 : radius > 800 ? 14 : 15;
+  map.setView(center, zoom);
+
+  showLoading(true);
+  setStatus('データを取得中…');
+
+  showError(null);
+  try {
+    const data = await fetchOverpass(center[0], center[1], radius);
+    let tc = 0, rc = 0, cc = 0;
+
+    data.elements.forEach(el => {
+      const tags = el.tags || {};
+      const lat  = el.lat ?? el.center?.lat;
+      const lon  = el.lon ?? el.center?.lon;
+      if (!lat || !lon) return;
+
+      const amenity = tags['amenity'];
+      const shop    = tags['shop'];
+
+      if (amenity === 'toilets') {
+        const m = L.marker([lat, lon], { icon: icons.toilet })
+          .bindPopup(toiletPopup(tags, lat, lon), { maxWidth: 290 });
+        if (showToilet) m.addTo(map);
+        markers.toilet.push(m);
+        tc++;
+      } else if (['restaurant','cafe','fast_food'].includes(amenity)) {
+        const icon = icons[amenity] || icons.restaurant;
+        const m = L.marker([lat, lon], { icon })
+          .bindPopup(restaurantPopup(tags, lat, lon), { maxWidth: 290 });
+        if (showRestaurant) m.addTo(map);
+        markers.restaurant.push(m);
+        rc++;
+      } else if (shop === 'convenience') {
+        const m = L.marker([lat, lon], { icon: icons.convenience_store })
+          .bindPopup(conveniencePopup(tags, lat, lon), { maxWidth: 290 });
+        if (showConvenience) m.addTo(map);
+        markers.convenience.push(m);
+        cc++;
+      }
+    });
+
+    setStatus(`🚻 トイレ ${tc}件 ／ 🍽️ ランチ ${rc}件 ／ 🏪 コンビニ ${cc}件`);
+  } catch (e) {
+    console.error(e);
+    setStatus('');
+    showError(`⚠️ データ取得エラー: ${e.message}<br>
+      <small>Safari の場合は Chrome/Firefox をお試しください。<br>
+      またはターミナルで <code>python3 -m http.server 8080</code> を実行後、<br>
+      <b>http://localhost:8080</b> で開いてください。</small>`);
+  } finally {
+    showLoading(false);
+  }
+}
+
+// ─── 住所検索 ────────────────────────────────────────────
+async function search() {
+  const address = document.getElementById('address').value.trim();
+  if (!address) return;
+  showLoading(true);
+  showError(null);
+  setStatus('住所を検索中…');
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=jp`;
+    const res  = await fetch(url, {
+      headers: { 'Accept-Language': 'ja', 'User-Agent': 'ToiletLunchMap/1.0' }
+    });
+    const data = await res.json();
+    if (!data.length) {
+      setStatus('');
+      showError('⚠️ 住所が見つかりませんでした。別の表記でお試しください。');
+      showLoading(false);
+      return;
+    }
+    center = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+    await updateMap();
+  } catch (e) {
+    showLoading(false);
+    showError(`⚠️ 住所検索エラー: ${e.message}<br>
+      <small>Safari の場合は Chrome/Firefox で開くか、<br>
+      ターミナルで <code>python3 -m http.server 8080</code> を実行後、<br>
+      <b>http://localhost:8080</b> でアクセスしてください。</small>`);
+  }
+}
+
+// ─── 現在地 ──────────────────────────────────────────────
+function locate() {
+  if (!navigator.geolocation) { setStatus('位置情報が利用できません'); return; }
+  setStatus('現在地を取得中…');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      center = [pos.coords.latitude, pos.coords.longitude];
+      document.getElementById('address').value = '現在地';
+      updateMap();
+    },
+    () => setStatus('位置情報の取得に失敗しました')
+  );
+}
+
+// ─── Enterキー ────────────────────────────────────────────
+document.getElementById('address').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+
+// ─── 初回ロード（デフォルト座標で即起動、ジオコーディング不要）───────────────
+updateMap();
+</script>
+</body>
+</html>
