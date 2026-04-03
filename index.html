@@ -544,6 +544,14 @@ function locate() {
 // ─── Enterキー ────────────────────────────────────────────
 document.getElementById('address').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
 
+// ─── ダブルタップで中心地変更 ─────────────────────────────
+map.doubleClickZoom.disable(); // デフォルトのズームを無効化
+map.on('dblclick', e => {
+  center = [e.latlng.lat, e.latlng.lng];
+  document.getElementById('address').value = `${center[0].toFixed(5)}, ${center[1].toFixed(5)}`;
+  updateMap();
+});
+
 // ─── 初回ロード（デフォルト座標で即起動、ジオコーディング不要）───────────────
 updateMap();
 </script>
