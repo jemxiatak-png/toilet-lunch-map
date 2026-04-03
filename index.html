@@ -161,15 +161,15 @@
     <div class="row">
       <input type="text" id="address" placeholder="住所・地名を入力" value="横浜市中区池袋34"/>
       <button class="btn btn-primary" onclick="search()">検索</button>
-      <button class="btn btn-green"  onclick="locate()">現在地</button>
     </div>
 
-    <!-- 半径 -->
+    <!-- 半径 + 現在地 -->
     <div class="row">
       <span class="unit">半径</span>
       <input type="number" id="radius" value="500" min="100" max="3000" step="100"/>
       <span class="unit">m</span>
       <button class="btn btn-primary" onclick="updateMap()" style="padding:9px 12px">再取得</button>
+      <button class="btn btn-green"  onclick="locate()">📍 現在地</button>
     </div>
 
     <!-- フィルター -->
@@ -255,6 +255,38 @@ function toggleFilter(type) {
   }
 }
 
+// ─── 英語→日本語変換 ─────────────────────────────────────
+const CUISINE_JA = {
+  japanese:'日本料理', ramen:'ラーメン', sushi:'寿司', soba:'そば', udon:'うどん',
+  tempura:'天ぷら', tonkatsu:'とんかつ', yakitori:'焼き鳥', yakiniku:'焼肉',
+  okonomiyaki:'お好み焼き', takoyaki:'たこ焼き', curry:'カレー', gyoza:'餃子',
+  donburi:'丼', bento:'弁当', kaiseki:'懐石', izakaya:'居酒屋', noodle:'麺料理',
+  chinese:'中華料理', korean:'韓国料理', italian:'イタリアン', french:'フランス料理',
+  american:'アメリカン', indian:'インド料理', thai:'タイ料理', vietnamese:'ベトナム料理',
+  mexican:'メキシカン', spanish:'スペイン料理', mediterranean:'地中海料理',
+  burger:'バーガー', pizza:'ピザ', sandwich:'サンドイッチ', pasta:'パスタ',
+  steak:'ステーキ', seafood:'シーフード', fish:'魚料理', chicken:'チキン',
+  vegetarian:'ベジタリアン', vegan:'ヴィーガン', asian:'アジア料理',
+  international:'インターナショナル', cafe:'カフェ', bakery:'ベーカリー',
+  ice_cream:'アイスクリーム', dessert:'デザート', coffee:'コーヒー',
+  fast_food:'ファストフード', noodles:'麺料理', bbq:'バーベキュー',
+  shabu_shabu:'しゃぶしゃぶ', sukiyaki:'すき焼き', hot_pot:'鍋料理',
+  japanese_curry:'カレーライス', rice:'ご飯もの', soup:'スープ',
+};
+
+const AMENITY_JA = {
+  restaurant:'レストラン', cafe:'カフェ', fast_food:'ファストフード',
+  bar:'バー', pub:'パブ', food_court:'フードコート',
+};
+
+function translateCuisine(raw) {
+  if (!raw) return '';
+  return raw.split(/[;,]/).map(c => {
+    const key = c.trim().toLowerCase();
+    return CUISINE_JA[key] || c.trim();
+  }).join('・');
+}
+
 // ─── 価格帯 ──────────────────────────────────────────────
 function priceLabel(tags) {
   if (tags['price_range'])    return tags['price_range'];
@@ -285,9 +317,9 @@ function toiletPopup(tags, lat, lon) {
 function restaurantPopup(tags, lat, lon) {
   const name    = tags['name'] || '飲食店';
   const amenity = tags['amenity'];
-  const label   = amenity === 'fast_food' ? 'ファストフード' : amenity === 'cafe' ? 'カフェ' : 'レストラン';
+  const label   = AMENITY_JA[amenity] || 'レストラン';
   const badgeCls= amenity === 'cafe' ? 'badge-cafe' : amenity === 'fast_food' ? 'badge-fastfood' : 'badge-restaurant';
-  const cuisine = tags['cuisine'] ? `🍜 ${tags['cuisine'].replace(/;/g, '・')}` : '';
+  const cuisine = tags['cuisine'] ? `🍜 ${translateCuisine(tags['cuisine'])}` : '';
   const price   = `💴 価格帯: ${priceLabel(tags)}`;
   const hours   = tags['opening_hours'] ? `🕐 ${tags['opening_hours']}` : '';
   const phone   = tags['phone'] || tags['contact:phone'] || '';
