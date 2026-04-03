@@ -468,7 +468,28 @@ async function updateMap() {
   }
 }
 
-// ─── 住所検索 ────────────────────────────────────────────
+// ─── 住所検索（国土地理院API → Nominatim フォールバック）──────
+async function geocode(address) {
+  // 1st: 国土地理院（日本住所専用・高精度）
+  try {
+    const url = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(address)}`;
+    const res  = await fetch(url);
+    const data = await res.json();
+    if (data.length) {
+      const [lon, lat] = data[0].geometry.coordinates; // GeoJSON は [lon, lat]
+      return [lat, lon];
+    }
+  } catch (_) {}
+
+  // 2nd: Nominatim フォールバック
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=jp`;
+  const res  = await fetch(url, { headers: { 'Accept-Language': 'ja' } });
+  const data = await res.json();
+  if (data.length) return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+
+  return null;
+}
+
 async function search() {
   const address = document.getElementById('address').value.trim();
   if (!address) return;
@@ -476,25 +497,18 @@ async function search() {
   showError(null);
   setStatus('住所を検索中…');
   try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=jp`;
-    const res  = await fetch(url, {
-      headers: { 'Accept-Language': 'ja', 'User-Agent': 'ToiletLunchMap/1.0' }
-    });
-    const data = await res.json();
-    if (!data.length) {
+    const coords = await geocode(address);
+    if (!coords) {
       setStatus('');
-      showError('⚠️ 住所が見つかりませんでした。別の表記でお試しください。');
+      showError('⚠️ 住所が見つかりませんでした。都道府県から入力してみてください。');
       showLoading(false);
       return;
     }
-    center = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+    center = coords;
     await updateMap();
   } catch (e) {
     showLoading(false);
-    showError(`⚠️ 住所検索エラー: ${e.message}<br>
-      <small>Safari の場合は Chrome/Firefox で開くか、<br>
-      ターミナルで <code>python3 -m http.server 8080</code> を実行後、<br>
-      <b>http://localhost:8080</b> でアクセスしてください。</small>`);
+    showError(`⚠️ 住所検索エラー: ${e.message}`);
   }
 }
 
