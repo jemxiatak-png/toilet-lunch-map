@@ -363,8 +363,19 @@ function conveniencePopup(tags, lat, lon) {
 }
 
 // ─── Overpass API ────────────────────────────────────────
+async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
 async function fetchOverpass(lat, lon, r) {
-  const q = `[out:json][timeout:30];
+  const q = `[out:json][timeout:25];
 (
   node["amenity"="toilets"](around:${r},${lat},${lon});
   way["amenity"="toilets"](around:${r},${lat},${lon});
@@ -379,20 +390,38 @@ async function fetchOverpass(lat, lon, r) {
 );
 out center;`;
 
-  // 複数のエンドポイントを順に試みる
-  const endpoints = [
+  // ① 直接アクセス（POST）
+  const directEndpoints = [
     'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter'
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.openstreetmap.ru/api/interpreter',
   ];
-  for (const url of endpoints) {
+  for (const url of directEndpoints) {
     try {
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         method: 'POST',
         body: 'data=' + encodeURIComponent(q)
       });
       if (res.ok) return await res.json();
     } catch (_) {}
   }
+
+  // ② CORSプロキシ経由（GET）
+  const qEncoded = encodeURIComponent(q);
+  const proxyTargets = [
+    `https://corsproxy.io/?${encodeURIComponent('https://overpass-api.de/api/interpreter?data=' + qEncoded)}`,
+    `https://api.allorigins.win/get?url=${encodeURIComponent('https://overpass-api.de/api/interpreter?data=' + qEncoded)}`,
+  ];
+  for (const url of proxyTargets) {
+    try {
+      const res = await fetchWithTimeout(url, {}, 15000);
+      if (!res.ok) continue;
+      const raw = await res.json();
+      const data = raw.contents ? JSON.parse(raw.contents) : raw;
+      if (data && data.elements) return data;
+    } catch (_) {}
+  }
+
   throw new Error('Overpass API に接続できませんでした');
 }
 
@@ -460,9 +489,8 @@ async function updateMap() {
     console.error(e);
     setStatus('');
     showError(`⚠️ データ取得エラー: ${e.message}<br>
-      <small>Safari の場合は Chrome/Firefox をお試しください。<br>
-      またはターミナルで <code>python3 -m http.server 8080</code> を実行後、<br>
-      <b>http://localhost:8080</b> で開いてください。</small>`);
+      <small>通信状態を確認して「再取得」ボタンを押してください。<br>
+      しばらく待っても解決しない場合は時間をおいて再試行してください。</small>`);
   } finally {
     showLoading(false);
   }
