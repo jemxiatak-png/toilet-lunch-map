@@ -544,13 +544,48 @@ function locate() {
 // ─── Enterキー ────────────────────────────────────────────
 document.getElementById('address').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
 
-// ─── ダブルタップで中心地変更 ─────────────────────────────
-map.doubleClickZoom.disable(); // デフォルトのズームを無効化
+// ─── ダブルタップ／ダブルクリックで中心地変更 ─────────────
+map.doubleClickZoom.disable();
+
+// デスクトップ用（マウス）
 map.on('dblclick', e => {
   center = [e.latlng.lat, e.latlng.lng];
   document.getElementById('address').value = `${center[0].toFixed(5)}, ${center[1].toFixed(5)}`;
   updateMap();
 });
+
+// モバイル用（タッチ）
+let lastTap = 0;
+let lastTapPos = null;
+const mapEl = document.getElementById('map');
+
+mapEl.addEventListener('touchend', e => {
+  // スクロール・ピンチは無視（指1本のみ対象）
+  if (e.changedTouches.length !== 1) return;
+
+  const now = Date.now();
+  const touch = e.changedTouches[0];
+  const pos = { x: touch.clientX, y: touch.clientY };
+
+  const isDoubleTap =
+    now - lastTap < 350 &&
+    lastTapPos &&
+    Math.abs(pos.x - lastTapPos.x) < 30 &&
+    Math.abs(pos.y - lastTapPos.y) < 30;
+
+  if (isDoubleTap) {
+    e.preventDefault();
+    const latlng = map.containerPointToLatLng(L.point(pos.x - mapEl.getBoundingClientRect().left, pos.y - mapEl.getBoundingClientRect().top));
+    center = [latlng.lat, latlng.lng];
+    document.getElementById('address').value = `${center[0].toFixed(5)}, ${center[1].toFixed(5)}`;
+    updateMap();
+    lastTap = 0;
+    lastTapPos = null;
+  } else {
+    lastTap = now;
+    lastTapPos = pos;
+  }
+}, { passive: false });
 
 // ─── 初回ロード（デフォルト座標で即起動、ジオコーディング不要）───────────────
 updateMap();
